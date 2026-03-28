@@ -42,6 +42,15 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 
+# markdown (incluindo CLAUDE.md, AGENTS.md)
+*.md
+
+# diretórios ocultos (exceto .github que precisa do deploy.yml)
+.claude/
+.vscode/
+.idea/
+.ref/
+
 # local editor settings
 *.md
 .*/
