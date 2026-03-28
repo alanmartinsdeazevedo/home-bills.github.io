@@ -1,16 +1,13 @@
 export type TransactionType = 'income' | 'expense'
-export type PaymentMethod =
-  | 'carrefour'
-  | 'assai'
-  | 'nubank'
-  | 'hiper'
-  | 'santander'
-  | 'sams'
-  | 'pix'
-  | 'dinheiro'
-  | 'boleto'
-  | 'debito'
-  | 'outro'
+export type PaymentMethod = string
+
+export interface PaymentMethodRecord {
+  id: string
+  user_id: string
+  name: string
+  is_active: boolean
+  created_at: string
+}
 
 export interface CreditCard {
   id: string

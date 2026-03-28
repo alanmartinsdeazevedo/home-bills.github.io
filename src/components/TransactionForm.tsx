@@ -4,23 +4,15 @@ import { useState, useEffect } from 'react'
 import { X, Loader2 } from 'lucide-react'
 import { useTransactions } from '@/hooks/useTransactions'
 import { useCreditCards } from '@/hooks/useCreditCards'
-import type { TransactionType, PaymentMethod } from '@/lib/types'
+import { usePaymentMethods, DEFAULT_PAYMENT_METHODS } from '@/hooks/usePaymentMethods'
+import type { TransactionType } from '@/lib/types'
 
-const PAYMENT_METHODS: { value: PaymentMethod; label: string }[] = [
-  { value: 'pix', label: 'PIX' },
-  { value: 'dinheiro', label: 'Dinheiro' },
-  { value: 'debito', label: 'Débito' },
-  { value: 'boleto', label: 'Boleto' },
-  { value: 'carrefour', label: 'Cartão Carrefour' },
-  { value: 'assai', label: 'Cartão Assaí' },
-  { value: 'nubank', label: 'Cartão Nubank' },
-  { value: 'hiper', label: 'Cartão Hiper' },
-  { value: 'santander', label: 'Cartão Santander' },
-  { value: 'sams', label: 'Cartão Sams Club' },
-  { value: 'outro', label: 'Outro' },
+const INCOME_PAYMENT_METHODS = [
+  { id: 'pix', name: 'PIX' },
+  { id: 'dinheiro', name: 'Dinheiro' },
+  { id: 'transferencia', name: 'Transferência' },
+  { id: 'outro', name: 'Outro' },
 ]
-
-const CARD_METHODS: PaymentMethod[] = ['carrefour', 'assai', 'nubank', 'hiper', 'santander', 'sams']
 
 interface TransactionFormProps {
   open: boolean
@@ -37,14 +29,15 @@ export default function TransactionForm({
 }: TransactionFormProps) {
   const { categories, addTransaction } = useTransactions()
   const { cards, fetchCards } = useCreditCards()
+  const { customMethods, fetchPaymentMethods } = usePaymentMethods()
 
   const [type, setType] = useState<TransactionType>(initialType)
   const [amount, setAmount] = useState('')
   const [date, setDate] = useState(() => new Date().toISOString().split('T')[0])
   const [categoryId, setCategoryId] = useState('')
   const [description, setDescription] = useState('')
-  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('pix')
-  const [creditCardId, setCreditCardId] = useState('')
+  const [paymentMethod, setPaymentMethod] = useState('pix')
+  const [selectedCardId, setSelectedCardId] = useState<string | null>(null)
   const [isInstallment, setIsInstallment] = useState(false)
   const [installmentTotal, setInstallmentTotal] = useState(2)
   const [notes, setNotes] = useState('')
@@ -54,38 +47,21 @@ export default function TransactionForm({
   useEffect(() => {
     if (open) {
       fetchCards()
+      fetchPaymentMethods()
       setError('')
     }
-  }, [open, fetchCards])
+  }, [open, fetchCards, fetchPaymentMethods])
 
   useEffect(() => {
     setType(initialType)
   }, [initialType])
 
-  // Reset credit card when payment method changes
-  const isCardMethod = CARD_METHODS.includes(paymentMethod)
+  // Reset installment when no card is selected
   useEffect(() => {
-    if (!isCardMethod) {
-      setCreditCardId('')
+    if (!selectedCardId) {
       setIsInstallment(false)
     }
-    // Auto-select credit card by payment method
-    if (isCardMethod && cards.length > 0) {
-      const methodToCardName: Record<string, string> = {
-        carrefour: 'Carrefour',
-        assai: 'Assaí',
-        nubank: 'Nubank',
-        hiper: 'Hiper',
-        santander: 'Santander',
-        sams: 'Sams Club',
-      }
-      const targetName = methodToCardName[paymentMethod]
-      const found = cards.find((c) =>
-        c.name.toLowerCase().includes(targetName?.toLowerCase() ?? '')
-      )
-      if (found) setCreditCardId(found.id)
-    }
-  }, [paymentMethod, isCardMethod, cards])
+  }, [selectedCardId])
 
   const filteredCategories = categories.filter((c) => c.type === type)
 
@@ -93,6 +69,17 @@ export default function TransactionForm({
     // Allow only numbers and comma/dot
     const cleaned = val.replace(/[^\d,]/g, '').replace(',', '.')
     setAmount(cleaned)
+  }
+
+  const handlePaymentChange = (value: string) => {
+    if (value.startsWith('card:')) {
+      const cardId = value.replace('card:', '')
+      setSelectedCardId(cardId)
+      setPaymentMethod('cartao')
+    } else {
+      setSelectedCardId(null)
+      setPaymentMethod(value.replace('method:', ''))
+    }
   }
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -117,10 +104,10 @@ export default function TransactionForm({
       description: description.trim(),
       date,
       payment_method: paymentMethod,
-      credit_card_id: creditCardId || null,
-      is_installment: isInstallment && isCardMethod && !!creditCardId,
+      credit_card_id: selectedCardId,
+      is_installment: isInstallment && !!selectedCardId,
       installment_total:
-        isInstallment && isCardMethod && !!creditCardId ? installmentTotal : null,
+        isInstallment && !!selectedCardId ? installmentTotal : null,
       notes: notes.trim() || null,
     })
     setSubmitting(false)
@@ -134,7 +121,7 @@ export default function TransactionForm({
       setNotes('')
       setCategoryId('')
       setPaymentMethod('pix')
-      setCreditCardId('')
+      setSelectedCardId(null)
       setIsInstallment(false)
       setInstallmentTotal(2)
       onSuccess()
@@ -143,6 +130,11 @@ export default function TransactionForm({
   }
 
   if (!open) return null
+
+  // Compute selected value for the payment select
+  const paymentSelectValue = selectedCardId
+    ? `card:${selectedCardId}`
+    : `method:${paymentMethod}`
 
   return (
     <div className="fixed inset-0 z-50 flex items-end md:items-center justify-center">
@@ -255,51 +247,60 @@ export default function TransactionForm({
             />
           </div>
 
-          {/* Payment method (expense only) */}
+          {/* Payment method — expense */}
           {type === 'expense' && (
             <div>
               <label className="block text-xs font-semibold text-slate-600 mb-1.5 uppercase tracking-wide">
                 Forma de Pagamento
               </label>
               <select
-                value={paymentMethod}
-                onChange={(e) => setPaymentMethod(e.target.value as PaymentMethod)}
+                value={paymentSelectValue}
+                onChange={(e) => handlePaymentChange(e.target.value)}
                 className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
               >
-                {PAYMENT_METHODS.map((pm) => (
-                  <option key={pm.value} value={pm.value}>
-                    {pm.label}
+                <optgroup label="Cartões de Crédito">
+                  {cards.filter((c) => c.is_active).map((card) => (
+                    <option key={card.id} value={`card:${card.id}`}>
+                      Cartão {card.name}
+                    </option>
+                  ))}
+                </optgroup>
+                <optgroup label="Outras Formas">
+                  {[
+                    ...DEFAULT_PAYMENT_METHODS,
+                    ...customMethods.filter((m) => m.is_active),
+                  ].map((m) => (
+                    <option key={m.id} value={`method:${m.id}`}>
+                      {m.name}
+                    </option>
+                  ))}
+                </optgroup>
+              </select>
+            </div>
+          )}
+
+          {/* Payment method — income */}
+          {type === 'income' && (
+            <div>
+              <label className="block text-xs font-semibold text-slate-600 mb-1.5 uppercase tracking-wide">
+                Forma de Recebimento
+              </label>
+              <select
+                value={`method:${paymentMethod}`}
+                onChange={(e) => handlePaymentChange(e.target.value)}
+                className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+              >
+                {INCOME_PAYMENT_METHODS.map((m) => (
+                  <option key={m.id} value={`method:${m.id}`}>
+                    {m.name}
                   </option>
                 ))}
               </select>
             </div>
           )}
 
-          {/* Credit card select */}
-          {type === 'expense' && isCardMethod && (
-            <div>
-              <label className="block text-xs font-semibold text-slate-600 mb-1.5 uppercase tracking-wide">
-                Cartão de Crédito
-              </label>
-              <select
-                value={creditCardId}
-                onChange={(e) => setCreditCardId(e.target.value)}
-                className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
-              >
-                <option value="">Selecionar cartão...</option>
-                {cards
-                  .filter((c) => c.is_active)
-                  .map((card) => (
-                    <option key={card.id} value={card.id}>
-                      {card.name}
-                    </option>
-                  ))}
-              </select>
-            </div>
-          )}
-
-          {/* Installment toggle */}
-          {type === 'expense' && isCardMethod && creditCardId && (
+          {/* Installment toggle — only when a credit card is selected */}
+          {type === 'expense' && selectedCardId && (
             <div className="bg-slate-50 rounded-xl p-4 space-y-3">
               <label className="flex items-center gap-3 cursor-pointer">
                 <div

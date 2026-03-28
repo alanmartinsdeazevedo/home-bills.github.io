@@ -10,7 +10,8 @@ import { useHousehold } from '@/hooks/useHousehold'
 import { useAuth } from '@/hooks/useAuth'
 import { supabase } from '@/lib/supabase'
 import type { CreditCard, FixedBill } from '@/lib/types'
-import { Plus, X, Loader2, Pencil, Power, Users, Copy, Check, UserMinus, Link } from 'lucide-react'
+import { Plus, X, Loader2, Pencil, Power, Users, Copy, Check, UserMinus, Link, CreditCard as CreditCardIcon } from 'lucide-react'
+import { usePaymentMethods, DEFAULT_PAYMENT_METHODS } from '@/hooks/usePaymentMethods'
 
 const fmt = (v: number) =>
   new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(v)
@@ -772,15 +773,190 @@ function FamiliaTab() {
   )
 }
 
+// ─── Pagamentos Tab ───────────────────────────────────────────────────────────
+
+function PagamentosTab() {
+  const { customMethods, loading, fetchPaymentMethods, addPaymentMethod, deletePaymentMethod, toggleActive } =
+    usePaymentMethods()
+  const [showForm, setShowForm] = useState(false)
+  const [newName, setNewName] = useState('')
+  const [saving, setSaving] = useState(false)
+  const [formError, setFormError] = useState('')
+
+  useEffect(() => {
+    fetchPaymentMethods()
+  }, [fetchPaymentMethods])
+
+  const handleAdd = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setFormError('')
+    if (!newName.trim()) {
+      setFormError('Informe um nome')
+      return
+    }
+    setSaving(true)
+    const result = await addPaymentMethod(newName)
+    setSaving(false)
+    if (result.error) {
+      setFormError(result.error)
+    } else {
+      setNewName('')
+      setShowForm(false)
+    }
+  }
+
+  const handleDelete = async (id: string) => {
+    if (!confirm('Remover esta forma de pagamento?')) return
+    await deletePaymentMethod(id)
+  }
+
+  if (loading) {
+    return (
+      <div className="space-y-2 animate-pulse">
+        {[1, 2, 3].map((i) => (
+          <div key={i} className="bg-slate-200 rounded-xl h-12" />
+        ))}
+      </div>
+    )
+  }
+
+  return (
+    <div className="space-y-5">
+      <div>
+        <h2 className="text-base font-bold text-slate-800">Formas de Pagamento</h2>
+        <p className="text-sm text-slate-500 mt-0.5">
+          Além dos cartões de crédito, você pode cadastrar formas de pagamento adicionais.
+        </p>
+      </div>
+
+      {/* Formas padrão */}
+      <div>
+        <h3 className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2 px-1">
+          Padrão (não removíveis)
+        </h3>
+        <div className="flex flex-wrap gap-2">
+          {DEFAULT_PAYMENT_METHODS.map((m) => (
+            <span
+              key={m.id}
+              className="px-3 py-1.5 bg-slate-100 text-slate-500 rounded-lg text-sm font-medium"
+            >
+              {m.name}
+            </span>
+          ))}
+        </div>
+      </div>
+
+      {/* Formas customizadas */}
+      <div>
+        <div className="flex items-center justify-between mb-2 px-1">
+          <h3 className="text-xs font-semibold text-slate-500 uppercase tracking-wide">
+            Personalizadas
+          </h3>
+          <button
+            onClick={() => { setShowForm(!showForm); setFormError(''); setNewName('') }}
+            className="flex items-center gap-1.5 bg-blue-600 text-white px-3 py-1.5 rounded-lg text-xs font-semibold hover:bg-blue-700 transition-colors"
+          >
+            {showForm ? <X size={13} /> : <Plus size={13} />}
+            {showForm ? 'Cancelar' : 'Adicionar'}
+          </button>
+        </div>
+
+        {showForm && (
+          <form
+            onSubmit={handleAdd}
+            className="bg-slate-50 rounded-xl p-4 border border-slate-200 space-y-3 mb-3"
+          >
+            <div>
+              <label className="block text-xs font-semibold text-slate-600 mb-1 uppercase tracking-wide">
+                Nome
+              </label>
+              <input
+                type="text"
+                value={newName}
+                onChange={(e) => setNewName(e.target.value)}
+                placeholder="Ex: Vale Alimentação"
+                className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                autoFocus
+              />
+            </div>
+            {formError && (
+              <p className="text-xs text-red-600">{formError}</p>
+            )}
+            <div className="flex gap-2">
+              <button
+                type="submit"
+                disabled={saving}
+                className="flex-1 py-2 bg-blue-600 text-white rounded-lg text-sm font-semibold hover:bg-blue-700 transition-colors flex items-center justify-center gap-2 disabled:opacity-60"
+              >
+                {saving && <Loader2 size={14} className="animate-spin" />}
+                Adicionar
+              </button>
+              <button
+                type="button"
+                onClick={() => { setShowForm(false); setNewName(''); setFormError('') }}
+                className="px-4 py-2 bg-slate-200 text-slate-700 rounded-lg text-sm font-semibold hover:bg-slate-300 transition-colors"
+              >
+                Cancelar
+              </button>
+            </div>
+          </form>
+        )}
+
+        {customMethods.length === 0 ? (
+          <div className="bg-white rounded-2xl border border-slate-200 p-8 text-center">
+            <CreditCardIcon size={32} className="text-slate-300 mx-auto mb-2" />
+            <p className="text-slate-400 text-sm">Nenhuma forma de pagamento adicionada</p>
+          </div>
+        ) : (
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-sm divide-y divide-slate-50">
+            {customMethods.map((method) => (
+              <div key={method.id} className="flex items-center justify-between px-5 py-3">
+                <p
+                  className={`font-medium text-sm ${
+                    method.is_active ? 'text-slate-800' : 'text-slate-400 line-through'
+                  }`}
+                >
+                  {method.name}
+                </p>
+                <div className="flex items-center gap-1">
+                  <button
+                    onClick={() => toggleActive(method.id, !method.is_active)}
+                    className={`p-2 rounded-lg transition-colors ${
+                      method.is_active
+                        ? 'hover:bg-red-50 text-slate-400 hover:text-red-500'
+                        : 'hover:bg-green-50 text-slate-300 hover:text-green-500'
+                    }`}
+                    title={method.is_active ? 'Desativar' : 'Ativar'}
+                  >
+                    <Power size={14} />
+                  </button>
+                  <button
+                    onClick={() => handleDelete(method.id)}
+                    className="p-2 rounded-lg hover:bg-red-50 text-slate-300 hover:text-red-500 transition-colors"
+                    title="Remover"
+                  >
+                    <X size={14} />
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
-type Tab = 'parcelas' | 'receber' | 'cartoes' | 'contas' | 'familia'
+type Tab = 'parcelas' | 'receber' | 'cartoes' | 'contas' | 'pagamentos' | 'familia'
 
 const TABS: { id: Tab; label: string }[] = [
   { id: 'parcelas', label: 'Parcelas' },
   { id: 'receber', label: 'A Receber' },
   { id: 'cartoes', label: 'Cartões' },
   { id: 'contas', label: 'Contas Fixas' },
+  { id: 'pagamentos', label: 'Pagamentos' },
   { id: 'familia', label: 'Família' },
 ]
 
@@ -819,6 +995,7 @@ function MaisContent() {
         {activeTab === 'receber' && <ReceivablesList showAll />}
         {activeTab === 'cartoes' && <CartoesTab />}
         {activeTab === 'contas' && <ContasFixasTab />}
+        {activeTab === 'pagamentos' && <PagamentosTab />}
         {activeTab === 'familia' && <FamiliaTab />}
       </main>
       <BottomNav />
