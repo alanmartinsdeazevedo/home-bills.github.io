@@ -131,3 +131,30 @@ export interface DashboardData {
   totalPercentage: number
   monthlyTrend: MonthlyTrend[]
 }
+
+// ─── Grupo Familiar ───────────────────────────────────────────
+
+export interface Household {
+  id: string
+  name: string
+  owner_id: string
+  created_at: string
+}
+
+export interface HouseholdMember {
+  household_id: string
+  user_id: string
+  role: 'owner' | 'member'
+  joined_at: string
+}
+
+export interface HouseholdInvite {
+  id: string
+  household_id: string
+  token: string
+  invited_by: string
+  accepted_by: string | null
+  accepted_at: string | null
+  created_at: string
+  expires_at: string
+}

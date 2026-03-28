@@ -110,4 +110,26 @@ export async function seedUserData(userId: string): Promise<void> {
   if (cardError) {
     console.error('Erro ao criar cartões:', cardError)
   }
+
+  // Criar grupo familiar para o novo usuário
+  const { data: household } = await supabase
+    .from('households')
+    .insert({ name: 'Minha Família', owner_id: userId })
+    .select()
+    .single()
+
+  // Adicionar usuário como dono do grupo familiar
+  if (household) {
+    const { error: memberError } = await supabase
+      .from('household_members')
+      .insert({
+        household_id: household.id,
+        user_id: userId,
+        role: 'owner',
+      })
+
+    if (memberError) {
+      console.error('Erro ao adicionar membro ao grupo familiar:', memberError)
+    }
+  }
 }

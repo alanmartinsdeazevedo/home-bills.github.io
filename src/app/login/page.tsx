@@ -41,7 +41,15 @@ export default function LoginPage() {
         setError(translateError(result.error))
         setLoading(false)
       } else {
-        router.push('/dashboard/')
+        // Se há um convite pendente salvo, redireciona para a página de convite
+        const pendingToken = typeof window !== 'undefined'
+          ? localStorage.getItem('pendingInviteToken')
+          : null
+        if (pendingToken) {
+          router.push(`/convite/?token=${pendingToken}`)
+        } else {
+          router.push('/dashboard/')
+        }
       }
     } else {
       const result = await signup(email, password)

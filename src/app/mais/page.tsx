@@ -6,9 +6,11 @@ import InstallmentProjection from '@/components/InstallmentProjection'
 import ReceivablesList from '@/components/ReceivablesList'
 import BottomNav, { TopNav } from '@/components/BottomNav'
 import { useCreditCards } from '@/hooks/useCreditCards'
+import { useHousehold } from '@/hooks/useHousehold'
+import { useAuth } from '@/hooks/useAuth'
 import { supabase } from '@/lib/supabase'
 import type { CreditCard, FixedBill } from '@/lib/types'
-import { Plus, X, Loader2, Pencil, Power } from 'lucide-react'
+import { Plus, X, Loader2, Pencil, Power, Users, Copy, Check, UserMinus, Link } from 'lucide-react'
 
 const fmt = (v: number) =>
   new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(v)
@@ -551,15 +553,235 @@ function ContasFixasTab() {
   )
 }
 
+// ─── Família Tab ──────────────────────────────────────────────────────────────
+
+function FamiliaTab() {
+  const { user } = useAuth()
+  const { household, members, invites, loading, fetchHousehold, createInvite, removeMember, getInviteUrl } =
+    useHousehold()
+
+  const [inviteUrl, setInviteUrl] = useState('')
+  const [generatingInvite, setGeneratingInvite] = useState(false)
+  const [copied, setCopied] = useState(false)
+
+  useEffect(() => {
+    fetchHousehold()
+  }, [fetchHousehold])
+
+  const handleGenerateInvite = async () => {
+    setGeneratingInvite(true)
+    const token = await createInvite()
+    if (token) {
+      setInviteUrl(getInviteUrl(token))
+    }
+    setGeneratingInvite(false)
+  }
+
+  const handleCopy = async () => {
+    try {
+      await navigator.clipboard.writeText(inviteUrl)
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
+    } catch {
+      // fallback para dispositivos sem suporte
+      const input = document.createElement('input')
+      input.value = inviteUrl
+      document.body.appendChild(input)
+      input.select()
+      document.execCommand('copy')
+      document.body.removeChild(input)
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
+    }
+  }
+
+  const handleRemoveMember = async (userId: string) => {
+    if (!confirm('Remover este membro do grupo familiar?')) return
+    await removeMember(userId)
+  }
+
+  const isOwner = household?.owner_id === user?.id
+
+  if (loading) {
+    return (
+      <div className="space-y-2 animate-pulse">
+        {[1, 2, 3].map((i) => (
+          <div key={i} className="bg-slate-200 rounded-xl h-16" />
+        ))}
+      </div>
+    )
+  }
+
+  if (!household) {
+    return (
+      <div className="bg-white rounded-2xl border border-slate-200 p-10 text-center">
+        <Users size={40} className="text-slate-300 mx-auto mb-3" />
+        <p className="text-slate-500 text-sm">Grupo familiar não encontrado.</p>
+      </div>
+    )
+  }
+
+  return (
+    <div className="space-y-5">
+      {/* Nome do grupo */}
+      <div className="bg-white rounded-2xl border border-slate-200 shadow-sm px-5 py-4">
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 bg-blue-100 rounded-xl flex items-center justify-center flex-shrink-0">
+            <Users size={20} className="text-blue-600" />
+          </div>
+          <div>
+            <p className="font-bold text-slate-800">{household.name}</p>
+            <p className="text-xs text-slate-400">
+              {members.length} {members.length === 1 ? 'membro' : 'membros'}
+            </p>
+          </div>
+        </div>
+      </div>
+
+      {/* Lista de membros */}
+      <div>
+        <h2 className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2 px-1">
+          Membros
+        </h2>
+        <div className="bg-white rounded-2xl border border-slate-200 shadow-sm divide-y divide-slate-50">
+          {members.map((member) => (
+            <div key={member.user_id} className="flex items-center justify-between px-5 py-3">
+              <div className="flex items-center gap-3">
+                <div className="w-8 h-8 bg-slate-100 rounded-full flex items-center justify-center">
+                  <Users size={14} className="text-slate-400" />
+                </div>
+                <div>
+                  <p className="text-sm font-medium text-slate-700">
+                    {member.user_id === user?.id ? 'Você' : `Membro`}
+                  </p>
+                  <span
+                    className={`text-xs font-semibold px-2 py-0.5 rounded-full ${
+                      member.role === 'owner'
+                        ? 'bg-blue-100 text-blue-700'
+                        : 'bg-slate-100 text-slate-500'
+                    }`}
+                  >
+                    {member.role === 'owner' ? 'Dono' : 'Membro'}
+                  </span>
+                </div>
+              </div>
+              {/* Dono pode remover outros membros (não a si mesmo) */}
+              {isOwner && member.user_id !== user?.id && (
+                <button
+                  onClick={() => handleRemoveMember(member.user_id)}
+                  className="p-2 rounded-lg hover:bg-red-50 text-slate-300 hover:text-red-500 transition-colors"
+                  title="Remover membro"
+                >
+                  <UserMinus size={16} />
+                </button>
+              )}
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Convites pendentes */}
+      {isOwner && invites.length > 0 && (
+        <div>
+          <h2 className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2 px-1">
+            Convites Pendentes
+          </h2>
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-sm divide-y divide-slate-50">
+            {invites.map((invite) => (
+              <div key={invite.id} className="flex items-center justify-between px-5 py-3">
+                <div>
+                  <p className="text-sm font-medium text-slate-700">Convite ativo</p>
+                  <p className="text-xs text-slate-400">
+                    Expira em{' '}
+                    {new Date(invite.expires_at).toLocaleDateString('pt-BR', {
+                      day: '2-digit',
+                      month: '2-digit',
+                      year: 'numeric',
+                    })}
+                  </p>
+                </div>
+                <span className="text-xs bg-yellow-100 text-yellow-700 font-semibold px-2 py-1 rounded-full">
+                  Aguardando
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Seção para gerar convite (apenas para o dono) */}
+      {isOwner && (
+        <div className="bg-white rounded-2xl border border-slate-200 shadow-sm px-5 py-5 space-y-4">
+          <div>
+            <h2 className="font-semibold text-slate-800 mb-1 flex items-center gap-2">
+              <Link size={16} className="text-blue-600" />
+              Convidar familiar
+            </h2>
+            <p className="text-sm text-slate-500">
+              Compartilhe este link com sua esposa ou familiar. Eles precisarão criar
+              uma conta ou fazer login para aceitar o convite.
+            </p>
+          </div>
+
+          <button
+            onClick={handleGenerateInvite}
+            disabled={generatingInvite}
+            className="flex items-center gap-2 bg-blue-600 text-white px-4 py-2.5 rounded-xl text-sm font-semibold hover:bg-blue-700 transition-colors disabled:opacity-60"
+          >
+            {generatingInvite ? (
+              <Loader2 size={15} className="animate-spin" />
+            ) : (
+              <Plus size={15} />
+            )}
+            Gerar link de convite
+          </button>
+
+          {inviteUrl && (
+            <div className="space-y-2">
+              <label className="block text-xs font-semibold text-slate-600 uppercase tracking-wide">
+                Link de convite
+              </label>
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  readOnly
+                  value={inviteUrl}
+                  className="flex-1 border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-600 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  onClick={(e) => (e.target as HTMLInputElement).select()}
+                />
+                <button
+                  onClick={handleCopy}
+                  className={`flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-semibold transition-colors ${
+                    copied
+                      ? 'bg-green-100 text-green-700'
+                      : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                  }`}
+                >
+                  {copied ? <Check size={14} /> : <Copy size={14} />}
+                  {copied ? 'Copiado!' : 'Copiar'}
+                </button>
+              </div>
+              <p className="text-xs text-slate-400">
+                O link é válido por 7 dias e pode ser usado apenas uma vez.
+              </p>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
-type Tab = 'parcelas' | 'receber' | 'cartoes' | 'contas'
+type Tab = 'parcelas' | 'receber' | 'cartoes' | 'contas' | 'familia'
 
 const TABS: { id: Tab; label: string }[] = [
   { id: 'parcelas', label: 'Parcelas' },
   { id: 'receber', label: 'A Receber' },
   { id: 'cartoes', label: 'Cartões' },
   { id: 'contas', label: 'Contas Fixas' },
+  { id: 'familia', label: 'Família' },
 ]
 
 function MaisContent() {
@@ -597,6 +819,7 @@ function MaisContent() {
         {activeTab === 'receber' && <ReceivablesList showAll />}
         {activeTab === 'cartoes' && <CartoesTab />}
         {activeTab === 'contas' && <ContasFixasTab />}
+        {activeTab === 'familia' && <FamiliaTab />}
       </main>
       <BottomNav />
     </div>
